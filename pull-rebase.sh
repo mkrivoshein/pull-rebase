@@ -21,6 +21,26 @@ warn()    { printf '%b[%s]%b %s\n' "$YELLOW" "$repo" "$RESET" "$*"; }
 error()   { printf '%b[%s]%b %s\n' "$RED" "$repo" "$RESET" "$*"; }
 muted()   { printf '%b[%s]%b %b%s%b\n' "$CYAN" "$repo" "$RESET" "$DIM" "$*" "$RESET"; }
 
+age_text_from_epoch() {
+    local event_epoch="$1" present_label="$2" past_suffix="$3"
+
+    if [[ "$event_epoch" =~ ^[0-9]+$ ]]; then
+        local now_epoch age_days
+        now_epoch="$(date -u +%s)"
+        age_days=$(( (now_epoch - event_epoch) / 86400 ))
+        if (( age_days < 0 )); then
+            age_days=0
+        fi
+        if (( age_days == 0 )); then
+            printf '%s\n' "$present_label"
+        else
+            printf '%sd %s\n' "$age_days" "$past_suffix"
+        fi
+    else
+        printf '%s\n' "age unknown"
+    fi
+}
+
 # ── Discover repos (sorted) ────────────────────────────────────────────────────
 declare -a all_dirs=()
 for dir in "$SCRIPT_DIR"/*/; do
@@ -124,23 +144,17 @@ print_open_prs() {
     fi
 
     info "  open pull requests:"
-    local now_epoch pr_status pr_author pr_created_epoch pr_ci_text pr_line pr_age_days pr_age_text pr_meta_text
-    now_epoch="$(date -u +%s)"
+    local pr_status pr_author pr_created_epoch pr_ci_text pr_line pr_age_days pr_age_text pr_meta_text
     while IFS= read -r pr; do
         IFS=$'\t' read -r pr_status pr_author pr_created_epoch pr_ci_text pr_line <<< "$pr"
+        pr_age_text="$(age_text_from_epoch "$pr_created_epoch" "new" "old")"
         if [[ "$pr_created_epoch" =~ ^[0-9]+$ ]]; then
-            pr_age_days=$(( (now_epoch - pr_created_epoch) / 86400 ))
+            pr_age_days=$(( ($(date -u +%s) - pr_created_epoch) / 86400 ))
             if (( pr_age_days < 0 )); then
                 pr_age_days=0
             fi
-            if (( pr_age_days == 0 )); then
-                pr_age_text="new"
-            else
-                pr_age_text="${pr_age_days}d old"
-            fi
         else
             pr_age_days=0
-            pr_age_text="age unknown"
         fi
         if [[ -n "$pr_ci_text" ]]; then
             pr_meta_text="${pr_age_text}, ${pr_ci_text}"
@@ -216,12 +230,17 @@ print_recent_merged_prs() {
     local pr_line
     for number in "${numbers[@]}"; do
         pr_line="$(gh pr view "$number" --repo "$nwo" \
-            --json number,title,mergedAt,url \
-            --jq '"#\(.number) \(.title) (merged \(.mergedAt)) \(.url)"' 2>/dev/null || true)"
+            --json number,title,headRefName,author,mergedAt \
+            --jq '[
+                (.mergedAt | fromdateiso8601 | tostring),
+                "#\(.number) \(.title) [" + .headRefName + "] @" + .author.login
+            ] | @tsv' 2>/dev/null || true)"
         if [[ -n "$pr_line" ]]; then
-            info "    $pr_line"
+            local pr_merged_epoch pr_subject
+            IFS=$'\t' read -r pr_merged_epoch pr_subject <<< "$pr_line"
+            info "    ✅ merged PR ($(age_text_from_epoch "$pr_merged_epoch" "today" "ago")): $pr_subject"
         else
-            info "    #$number"
+            info "    ✅ merged PR (age unknown): #$number"
         fi
     done
 }
@@ -243,12 +262,19 @@ merged_pr_for_branch() {
 
     local pr
     pr="$(gh pr list --repo "$nwo" --state merged --head "$branch" --base main --limit 1 \
-        --json number,title,mergedAt,url \
-        --jq '.[0] | select(. != null) | "#\(.number) \(.title) (merged \(.mergedAt)) \(.url)"' \
+        --json number,title,headRefName,author,mergedAt \
+        --jq '.[0] | select(. != null) | [
+            (.mergedAt | fromdateiso8601 | tostring),
+            "#\(.number) \(.title) [" + .headRefName + "] @" + .author.login
+        ] | @tsv' \
         2>/dev/null || true)"
     [[ -n "$pr" ]] || return 1
 
-    printf '%s\n' "$pr"
+    local pr_merged_epoch pr_subject
+    IFS=$'\t' read -r pr_merged_epoch pr_subject <<< "$pr"
+    printf '✅ merged PR (%s): %s\n' \
+        "$(age_text_from_epoch "$pr_merged_epoch" "today" "ago")" \
+        "$pr_subject"
     return 0
 }
 
