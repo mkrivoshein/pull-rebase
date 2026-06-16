@@ -120,8 +120,11 @@ print_open_prs() {
         IFS=$'\t' read -r pr_status pr_created_epoch pr_line <<< "$pr"
         if [[ "$pr_created_epoch" =~ ^[0-9]+$ ]]; then
             pr_age_days=$(( (now_epoch - pr_created_epoch) / 86400 ))
+            if (( pr_age_days < 0 )); then
+                pr_age_days=0
+            fi
             if (( pr_age_days == 0 )); then
-                pr_age_text="today"
+                pr_age_text="less than 1d old"
             else
                 pr_age_text="${pr_age_days}d old"
             fi
