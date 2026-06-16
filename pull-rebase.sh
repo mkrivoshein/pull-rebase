@@ -15,11 +15,11 @@ BOLD='\033[1m'
 DIM='\033[2m'
 RESET='\033[0m'
 
-info()    { echo -e "${CYAN}[${repo}]${RESET} $*"; }
-ok()      { echo -e "${GREEN}[${repo}]${RESET} $*"; }
-warn()    { echo -e "${YELLOW}[${repo}]${RESET} $*"; }
-error()   { echo -e "${RED}[${repo}]${RESET} $*"; }
-muted()   { echo -e "${CYAN}[${repo}]${RESET} ${DIM}$*${RESET}"; }
+info()    { printf '%b[%s]%b %s\n' "$CYAN" "$repo" "$RESET" "$*"; }
+ok()      { printf '%b[%s]%b %s\n' "$GREEN" "$repo" "$RESET" "$*"; }
+warn()    { printf '%b[%s]%b %s\n' "$YELLOW" "$repo" "$RESET" "$*"; }
+error()   { printf '%b[%s]%b %s\n' "$RED" "$repo" "$RESET" "$*"; }
+muted()   { printf '%b[%s]%b %b%s%b\n' "$CYAN" "$repo" "$RESET" "$DIM" "$*" "$RESET"; }
 
 # ── Discover repos (sorted) ────────────────────────────────────────────────────
 declare -a all_dirs=()
