@@ -121,7 +121,7 @@ print_open_prs() {
         IFS=$'\t' read -r pr_status pr_author pr_line <<< "$pr"
         if [[ "$pr_status" == "CONFLICT" ]]; then
             warn "    ! merge conflict requires attention: $pr_line"
-        elif [[ "$pr_author" == "app/dependabot" ]]; then
+        elif [[ "$pr_author" == "app/dependabot" || "$pr_author" == "dependabot" || "$pr_author" == "dependabot[bot]" ]]; then
             muted "    $pr_line"
         else
             info "    $pr_line"
