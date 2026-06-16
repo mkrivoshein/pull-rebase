@@ -143,7 +143,10 @@ print_recent_merged_prs() {
 
     local subjects
     subjects="$(git -C "$d" log "${rev_args[@]}" 2>/dev/null || true)"
-    [[ -n "$subjects" ]] || return 0
+    if [[ -z "$subjects" ]]; then
+        info "  no recent pull request merges"
+        return 0
+    fi
 
     local -a numbers=()
     local -A seen=()
@@ -158,7 +161,10 @@ print_recent_merged_prs() {
         done < <(grep -Eo '#[0-9]+' <<< "$subject" || true)
     done <<< "$subjects"
 
-    [[ ${#numbers[@]} -gt 0 ]] || return 0
+    if [[ ${#numbers[@]} -eq 0 ]]; then
+        info "  no recent pull request merges"
+        return 0
+    fi
 
     info "  recently merged pull requests:"
     local pr_line
