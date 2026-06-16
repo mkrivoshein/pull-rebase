@@ -107,6 +107,14 @@ script prints:
 Merge conflict warnings are based on GitHub pull request mergeability fields
 reported by `gh pr list`.
 
+Open pull request CI annotations use these markers:
+
+- `CI ✅` all reported checks completed successfully, or were neutral/skipped
+- `CI ❌` at least one reported check failed or requires attention
+- `CI ⏳` at least one reported check is still pending or running
+- `CI -` no status checks are configured or reported for the pull request
+- `CI ❔` GitHub reported checks, but their combined state could not be classified
+
 ## Example
 
 ```text
@@ -118,8 +126,9 @@ Found 3 repositories:
   worker       private active  Background worker
 
 [service-api]   open pull requests:
-[service-api]     🕒 open PR (new): #12 chore(deps): bump dependency [dependabot/npm/pkg] @dependabot
-[service-api]     ⚠️ open PR (2d old), merge conflict: #13 feat: update API [feat/api-update] @user
+[service-api]     🕒 open PR (new, CI ✅): #12 chore(deps): bump dependency [dependabot/npm/pkg] @dependabot
+[service-api]     ⚠️ open PR (2d old, CI ❌), merge conflict: #13 feat: update API [feat/api-update] @user
+[service-api]     🕒 open PR (3d old, CI -): #14 docs: clarify setup [docs/setup] @user
 [service-api] main is up to date
 [service-web] on branch 'feat/new-ui'
 [service-web]   branch has a merged pull request:

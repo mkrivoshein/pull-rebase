@@ -103,11 +103,18 @@ print_open_prs() {
 
     local prs
     prs="$(gh pr list --repo "$nwo" --state open --limit 100 \
-        --json number,title,headRefName,author,createdAt,mergeable,mergeStateStatus \
-        --jq '.[] | [
+        --json number,title,headRefName,author,createdAt,mergeable,mergeStateStatus,statusCheckRollup \
+        --jq 'def check_state: (.conclusion // .state // .status // "");
+        .[] | .statusCheckRollup as $checks | [
             if (.mergeable == "CONFLICTING" or .mergeStateStatus == "DIRTY") then "CONFLICT" else "OK" end,
             .author.login,
             (.createdAt | fromdateiso8601 | tostring),
+            if (($checks // []) | length) == 0 then "CI -"
+            elif any($checks[]; (check_state == "FAILURE" or check_state == "ERROR" or check_state == "TIMED_OUT" or check_state == "CANCELLED" or check_state == "ACTION_REQUIRED" or check_state == "STARTUP_FAILURE")) then "CI ❌"
+            elif any($checks[]; (check_state == "PENDING" or check_state == "QUEUED" or check_state == "IN_PROGRESS" or check_state == "REQUESTED" or check_state == "WAITING")) then "CI ⏳"
+            elif all($checks[]; (check_state == "SUCCESS" or check_state == "SKIPPED" or check_state == "NEUTRAL")) then "CI ✅"
+            else "CI ❔"
+            end,
             "#\(.number) \(.title) [" + .headRefName + "] @" + .author.login
         ] | @tsv' \
         2>/dev/null || true)"
@@ -117,10 +124,10 @@ print_open_prs() {
     fi
 
     info "  open pull requests:"
-    local now_epoch pr_status pr_author pr_created_epoch pr_line pr_age_days pr_age_text
+    local now_epoch pr_status pr_author pr_created_epoch pr_ci_text pr_line pr_age_days pr_age_text pr_meta_text
     now_epoch="$(date -u +%s)"
     while IFS= read -r pr; do
-        IFS=$'\t' read -r pr_status pr_author pr_created_epoch pr_line <<< "$pr"
+        IFS=$'\t' read -r pr_status pr_author pr_created_epoch pr_ci_text pr_line <<< "$pr"
         if [[ "$pr_created_epoch" =~ ^[0-9]+$ ]]; then
             pr_age_days=$(( (now_epoch - pr_created_epoch) / 86400 ))
             if (( pr_age_days < 0 )); then
@@ -135,25 +142,30 @@ print_open_prs() {
             pr_age_days=0
             pr_age_text="age unknown"
         fi
+        if [[ -n "$pr_ci_text" ]]; then
+            pr_meta_text="${pr_age_text}, ${pr_ci_text}"
+        else
+            pr_meta_text="$pr_age_text"
+        fi
 
         if (( pr_age_days >= 30 )); then
             if [[ "$pr_status" == "CONFLICT" ]]; then
-                error "    🚨 old open PR (${pr_age_text}), merge conflict: $pr_line"
+                error "    🚨 old open PR (${pr_meta_text}), merge conflict: $pr_line"
             else
-                error "    🚨 old open PR (${pr_age_text}): $pr_line"
+                error "    🚨 old open PR (${pr_meta_text}): $pr_line"
             fi
         elif (( pr_age_days >= 7 )); then
             if [[ "$pr_status" == "CONFLICT" ]]; then
-                warn "    ⚠️ aging open PR (${pr_age_text}), merge conflict: $pr_line"
+                warn "    ⚠️ aging open PR (${pr_meta_text}), merge conflict: $pr_line"
             else
-                warn "    ⚠️ aging open PR (${pr_age_text}): $pr_line"
+                warn "    ⚠️ aging open PR (${pr_meta_text}): $pr_line"
             fi
         elif [[ "$pr_status" == "CONFLICT" ]]; then
-            warn "    ⚠️ open PR (${pr_age_text}), merge conflict: $pr_line"
+            warn "    ⚠️ open PR (${pr_meta_text}), merge conflict: $pr_line"
         elif [[ "$pr_author" == "app/dependabot" || "$pr_author" == "dependabot" || "$pr_author" == "dependabot[bot]" ]]; then
-            muted "    🕒 open PR (${pr_age_text}): $pr_line"
+            muted "    🕒 open PR (${pr_meta_text}): $pr_line"
         else
-            info "    🕒 open PR (${pr_age_text}): $pr_line"
+            info "    🕒 open PR (${pr_meta_text}): $pr_line"
         fi
     done <<< "$prs"
 }
