@@ -129,6 +129,8 @@ Found 3 repositories:
 [service-api]     🕒 open PR (new, CI ✅): #12 chore(deps): bump dependency [dependabot/npm/pkg] @dependabot
 [service-api]     ⚠️ open PR (2d old, CI ❌), merge conflict: #13 feat: update API [feat/api-update] @user
 [service-api]     🕒 open PR (3d old, CI -): #14 docs: clarify setup [docs/setup] @user
+[service-api]     🚨 old open PR (45d old, CI ✅, appears abandoned): #15 refactor: split auth flow [feat/auth-split] @user
+[service-api]     🚨 old open PR (62d old, CI ⏳, last activity 3d ago): #16 feat: streaming export [feat/stream-export] @user
 [service-api] main is up to date
 [service-web] on branch 'feat/new-ui'
 [service-web]   branch has a merged pull request:

@@ -123,12 +123,13 @@ print_open_prs() {
 
     local prs
     prs="$(gh pr list --repo "$nwo" --state open --limit 100 \
-        --json number,title,headRefName,author,createdAt,mergeable,mergeStateStatus,statusCheckRollup \
+        --json number,title,headRefName,author,createdAt,updatedAt,mergeable,mergeStateStatus,statusCheckRollup \
         --jq 'def check_state: (.conclusion // .state // .status // "");
         .[] | .statusCheckRollup as $checks | [
             if (.mergeable == "CONFLICTING" or .mergeStateStatus == "DIRTY") then "CONFLICT" else "OK" end,
             .author.login,
             (.createdAt | fromdateiso8601 | tostring),
+            (.updatedAt | fromdateiso8601 | tostring),
             if (($checks // []) | length) == 0 then "CI -"
             elif any($checks[]; (check_state == "FAILURE" or check_state == "ERROR" or check_state == "TIMED_OUT" or check_state == "CANCELLED" or check_state == "ACTION_REQUIRED" or check_state == "STARTUP_FAILURE")) then "CI ❌"
             elif any($checks[]; (check_state == "PENDING" or check_state == "QUEUED" or check_state == "IN_PROGRESS" or check_state == "REQUESTED" or check_state == "WAITING")) then "CI ⏳"
@@ -144,12 +145,14 @@ print_open_prs() {
     fi
 
     info "  open pull requests:"
-    local pr_status pr_author pr_created_epoch pr_ci_text pr_line pr_age_days pr_age_text pr_meta_text
+    local now_epoch pr_status pr_author pr_created_epoch pr_updated_epoch pr_ci_text pr_line
+    local pr_age_days pr_activity_days pr_age_text pr_meta_text pr_activity_text
+    now_epoch="$(date -u +%s)"
     while IFS= read -r pr; do
-        IFS=$'\t' read -r pr_status pr_author pr_created_epoch pr_ci_text pr_line <<< "$pr"
+        IFS=$'\t' read -r pr_status pr_author pr_created_epoch pr_updated_epoch pr_ci_text pr_line <<< "$pr"
         pr_age_text="$(age_text_from_epoch "$pr_created_epoch" "new" "old")"
         if [[ "$pr_created_epoch" =~ ^[0-9]+$ ]]; then
-            pr_age_days=$(( ($(date -u +%s) - pr_created_epoch) / 86400 ))
+            pr_age_days=$(( (now_epoch - pr_created_epoch) / 86400 ))
             if (( pr_age_days < 0 )); then
                 pr_age_days=0
             fi
@@ -163,10 +166,22 @@ print_open_prs() {
         fi
 
         if (( pr_age_days >= 30 )); then
-            if [[ "$pr_status" == "CONFLICT" ]]; then
-                error "    🚨 old open PR (${pr_meta_text}), merge conflict: $pr_line"
+            if [[ "$pr_updated_epoch" =~ ^[0-9]+$ ]]; then
+                pr_activity_days=$(( (now_epoch - pr_updated_epoch) / 86400 ))
+                if (( pr_activity_days <= 0 )); then
+                    pr_activity_text="recent activity"
+                elif (( pr_activity_days < 30 )); then
+                    pr_activity_text="last activity ${pr_activity_days}d ago"
+                else
+                    pr_activity_text="appears abandoned"
+                fi
             else
-                error "    🚨 old open PR (${pr_meta_text}): $pr_line"
+                pr_activity_text="appears abandoned"
+            fi
+            if [[ "$pr_status" == "CONFLICT" ]]; then
+                error "    🚨 old open PR (${pr_meta_text}, ${pr_activity_text}), merge conflict: $pr_line"
+            else
+                error "    🚨 old open PR (${pr_meta_text}, ${pr_activity_text}): $pr_line"
             fi
         elif (( pr_age_days >= 7 )); then
             if [[ "$pr_status" == "CONFLICT" ]]; then
