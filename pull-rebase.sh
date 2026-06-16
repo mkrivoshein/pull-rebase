@@ -12,12 +12,14 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
+DIM='\033[2m'
 RESET='\033[0m'
 
 info()    { echo -e "${CYAN}[${repo}]${RESET} $*"; }
 ok()      { echo -e "${GREEN}[${repo}]${RESET} $*"; }
 warn()    { echo -e "${YELLOW}[${repo}]${RESET} $*"; }
 error()   { echo -e "${RED}[${repo}]${RESET} $*"; }
+muted()   { echo -e "${CYAN}[${repo}]${RESET} ${DIM}$*${RESET}"; }
 
 # ── Discover repos (sorted) ────────────────────────────────────────────────────
 declare -a all_dirs=()
@@ -104,6 +106,7 @@ print_open_prs() {
         --json number,title,headRefName,author,createdAt,mergeable,mergeStateStatus \
         --jq '.[] | [
             if (.mergeable == "CONFLICTING" or .mergeStateStatus == "DIRTY") then "CONFLICT" else "OK" end,
+            .author.login,
             (.createdAt | fromdateiso8601 | tostring),
             "#\(.number) \(.title) [" + .headRefName + "] @" + .author.login
         ] | @tsv' \
@@ -114,10 +117,10 @@ print_open_prs() {
     fi
 
     info "  open pull requests:"
-    local now_epoch pr_status pr_created_epoch pr_line pr_age_days pr_age_text
+    local now_epoch pr_status pr_author pr_created_epoch pr_line pr_age_days pr_age_text
     now_epoch="$(date -u +%s)"
     while IFS= read -r pr; do
-        IFS=$'\t' read -r pr_status pr_created_epoch pr_line <<< "$pr"
+        IFS=$'\t' read -r pr_status pr_author pr_created_epoch pr_line <<< "$pr"
         if [[ "$pr_created_epoch" =~ ^[0-9]+$ ]]; then
             pr_age_days=$(( (now_epoch - pr_created_epoch) / 86400 ))
             if (( pr_age_days < 0 )); then
@@ -147,6 +150,8 @@ print_open_prs() {
             fi
         elif [[ "$pr_status" == "CONFLICT" ]]; then
             warn "    ⚠️ open PR (${pr_age_text}), merge conflict: $pr_line"
+        elif [[ "$pr_author" == "app/dependabot" || "$pr_author" == "dependabot" || "$pr_author" == "dependabot[bot]" ]]; then
+            muted "    🕒 open PR (${pr_age_text}): $pr_line"
         else
             info "    🕒 open PR (${pr_age_text}): $pr_line"
         fi
