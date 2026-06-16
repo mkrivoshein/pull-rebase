@@ -127,7 +127,7 @@ print_open_prs() {
                 pr_age_days=0
             fi
             if (( pr_age_days == 0 )); then
-                pr_age_text="less than 1d old"
+                pr_age_text="new"
             else
                 pr_age_text="${pr_age_days}d old"
             fi

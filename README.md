@@ -118,7 +118,7 @@ Found 3 repositories:
   worker       private active  Background worker
 
 [service-api]   open pull requests:
-[service-api]     🕒 open PR (less than 1d old): #12 chore(deps): bump dependency [dependabot/npm/pkg] @dependabot
+[service-api]     🕒 open PR (new): #12 chore(deps): bump dependency [dependabot/npm/pkg] @dependabot
 [service-api]     ⚠️ open PR (2d old), merge conflict: #13 feat: update API [feat/api-update] @user
 [service-api] main is up to date
 [service-web] on branch 'feat/new-ui'
