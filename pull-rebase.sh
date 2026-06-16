@@ -144,7 +144,7 @@ print_recent_merged_prs() {
     local subjects
     subjects="$(git -C "$d" log "${rev_args[@]}" 2>/dev/null || true)"
     if [[ -z "$subjects" ]]; then
-        info "  no recent pull request merges"
+        info "  no recent pull request references"
         return 0
     fi
 
@@ -162,7 +162,7 @@ print_recent_merged_prs() {
     done <<< "$subjects"
 
     if [[ ${#numbers[@]} -eq 0 ]]; then
-        info "  no recent pull request merges"
+        info "  no recent pull request references"
         return 0
     fi
 
