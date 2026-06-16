@@ -109,7 +109,7 @@ print_open_prs() {
             if (.mergeable == "CONFLICTING" or .mergeStateStatus == "DIRTY") then "CONFLICT" else "OK" end,
             .author.login,
             (.createdAt | fromdateiso8601 | tostring),
-            if (($checks // []) | length) == 0 then "NO_CI"
+            if (($checks // []) | length) == 0 then "CI -"
             elif any($checks[]; (check_state == "FAILURE" or check_state == "ERROR" or check_state == "TIMED_OUT" or check_state == "CANCELLED" or check_state == "ACTION_REQUIRED" or check_state == "STARTUP_FAILURE")) then "CI ❌"
             elif any($checks[]; (check_state == "PENDING" or check_state == "QUEUED" or check_state == "IN_PROGRESS" or check_state == "REQUESTED" or check_state == "WAITING")) then "CI ⏳"
             elif all($checks[]; (check_state == "SUCCESS" or check_state == "SKIPPED" or check_state == "NEUTRAL")) then "CI ✅"
@@ -128,9 +128,6 @@ print_open_prs() {
     now_epoch="$(date -u +%s)"
     while IFS= read -r pr; do
         IFS=$'\t' read -r pr_status pr_author pr_created_epoch pr_ci_text pr_line <<< "$pr"
-        if [[ "$pr_ci_text" == "NO_CI" ]]; then
-            pr_ci_text=""
-        fi
         if [[ "$pr_created_epoch" =~ ^[0-9]+$ ]]; then
             pr_age_days=$(( (now_epoch - pr_created_epoch) / 86400 ))
             if (( pr_age_days < 0 )); then
