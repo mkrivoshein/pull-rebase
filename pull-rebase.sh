@@ -103,11 +103,12 @@ print_open_prs() {
 
     local prs
     prs="$(gh pr list --repo "$nwo" --state open --limit 100 \
-        --json number,title,headRefName,author,url,updatedAt,mergeable,mergeStateStatus \
+        --json number,title,headRefName,author,createdAt,mergeable,mergeStateStatus \
         --jq '.[] | [
             if (.mergeable == "CONFLICTING" or .mergeStateStatus == "DIRTY") then "CONFLICT" else "OK" end,
             .author.login,
-            "#\(.number) \(.title) [" + .headRefName + "] @" + .author.login + " updated " + .updatedAt + " " + .url
+            (.createdAt | fromdateiso8601 | tostring),
+            "#\(.number) \(.title) [" + .headRefName + "] @" + .author.login
         ] | @tsv' \
         2>/dev/null || true)"
 
@@ -116,15 +117,43 @@ print_open_prs() {
     fi
 
     info "  open pull requests:"
-    local pr_status pr_author pr_line
+    local now_epoch pr_status pr_author pr_created_epoch pr_line pr_age_days pr_age_text
+    now_epoch="$(date -u +%s)"
     while IFS= read -r pr; do
-        IFS=$'\t' read -r pr_status pr_author pr_line <<< "$pr"
-        if [[ "$pr_status" == "CONFLICT" ]]; then
-            warn "    ! merge conflict requires attention: $pr_line"
-        elif [[ "$pr_author" == "app/dependabot" || "$pr_author" == "dependabot" || "$pr_author" == "dependabot[bot]" ]]; then
-            muted "    $pr_line"
+        IFS=$'\t' read -r pr_status pr_author pr_created_epoch pr_line <<< "$pr"
+        if [[ "$pr_created_epoch" =~ ^[0-9]+$ ]]; then
+            pr_age_days=$(( (now_epoch - pr_created_epoch) / 86400 ))
+            if (( pr_age_days < 0 )); then
+                pr_age_days=0
+            fi
+            if (( pr_age_days == 0 )); then
+                pr_age_text="new"
+            else
+                pr_age_text="${pr_age_days}d old"
+            fi
         else
-            info "    $pr_line"
+            pr_age_days=0
+            pr_age_text="age unknown"
+        fi
+
+        if (( pr_age_days >= 30 )); then
+            if [[ "$pr_status" == "CONFLICT" ]]; then
+                error "    🚨 old open PR (${pr_age_text}), merge conflict: $pr_line"
+            else
+                error "    🚨 old open PR (${pr_age_text}): $pr_line"
+            fi
+        elif (( pr_age_days >= 7 )); then
+            if [[ "$pr_status" == "CONFLICT" ]]; then
+                warn "    ⚠️ aging open PR (${pr_age_text}), merge conflict: $pr_line"
+            else
+                warn "    ⚠️ aging open PR (${pr_age_text}): $pr_line"
+            fi
+        elif [[ "$pr_status" == "CONFLICT" ]]; then
+            warn "    ⚠️ open PR (${pr_age_text}), merge conflict: $pr_line"
+        elif [[ "$pr_author" == "app/dependabot" || "$pr_author" == "dependabot" || "$pr_author" == "dependabot[bot]" ]]; then
+            muted "    🕒 open PR (${pr_age_text}): $pr_line"
+        else
+            info "    🕒 open PR (${pr_age_text}): $pr_line"
         fi
     done <<< "$prs"
 }
