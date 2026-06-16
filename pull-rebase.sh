@@ -136,13 +136,13 @@ print_open_prs() {
             pr_age_text="age unknown"
         fi
 
-        if (( pr_age_days > 30 )); then
+        if (( pr_age_days >= 30 )); then
             if [[ "$pr_status" == "CONFLICT" ]]; then
                 error "    🚨 old open PR (${pr_age_text}), merge conflict: $pr_line"
             else
                 error "    🚨 old open PR (${pr_age_text}): $pr_line"
             fi
-        elif (( pr_age_days > 7 )); then
+        elif (( pr_age_days >= 7 )); then
             if [[ "$pr_status" == "CONFLICT" ]]; then
                 warn "    ⚠️ aging open PR (${pr_age_text}), merge conflict: $pr_line"
             else
