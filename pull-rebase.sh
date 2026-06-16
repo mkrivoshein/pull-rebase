@@ -104,7 +104,7 @@ print_open_prs() {
         --json number,title,headRefName,author,createdAt,mergeable,mergeStateStatus \
         --jq '.[] | [
             if (.mergeable == "CONFLICTING" or .mergeStateStatus == "DIRTY") then "CONFLICT" else "OK" end,
-            .createdAt,
+            (.createdAt | fromdateiso8601 | tostring),
             "#\(.number) \(.title) [" + .headRefName + "] @" + .author.login
         ] | @tsv' \
         2>/dev/null || true)"
@@ -114,11 +114,10 @@ print_open_prs() {
     fi
 
     info "  open pull requests:"
-    local now_epoch pr_status pr_created_at pr_line pr_created_epoch pr_age_days pr_age_text
+    local now_epoch pr_status pr_created_epoch pr_line pr_age_days pr_age_text
     now_epoch="$(date -u +%s)"
     while IFS= read -r pr; do
-        IFS=$'\t' read -r pr_status pr_created_at pr_line <<< "$pr"
-        pr_created_epoch="$(date -u -d "$pr_created_at" +%s 2>/dev/null || true)"
+        IFS=$'\t' read -r pr_status pr_created_epoch pr_line <<< "$pr"
         if [[ "$pr_created_epoch" =~ ^[0-9]+$ ]]; then
             pr_age_days=$(( (now_epoch - pr_created_epoch) / 86400 ))
             if (( pr_age_days == 0 )); then
