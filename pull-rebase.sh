@@ -24,7 +24,7 @@ declare -a all_dirs=()
 for dir in "$SCRIPT_DIR"/*/; do
     [[ -d "$dir/.git" ]] && all_dirs+=("$dir")
 done
-IFS=$'\n' all_dirs=($(sort <<< "${all_dirs[*]}")); unset IFS
+mapfile -t all_dirs < <(printf '%s\n' "${all_dirs[@]}" | sort)
 
 # Column width shared by both the welcome list and the summary table
 max_len=4
@@ -389,7 +389,7 @@ echo
 echo -e "${BOLD}Summary${RESET}"
 echo -e "${BOLD}───────────────────────────────────────────────────────────────${RESET}"
 
-IFS=$'\n' sorted_repos=($(sort <<< "${summary_repos[*]}")); unset IFS
+mapfile -t sorted_repos < <(printf '%s\n' "${summary_repos[@]}" | sort)
 
 for r in "${sorted_repos[@]}"; do
     icon="${summary_icon[$r]}"
