@@ -125,9 +125,9 @@ print_open_prs() {
     prs="$(gh pr list --repo "$nwo" --state open --limit 100 \
         --json number,title,headRefName,author,createdAt,updatedAt,mergeable,mergeStateStatus,statusCheckRollup \
         --jq 'def check_state: (.conclusion // .state // .status // "");
-        .[] | .statusCheckRollup as $checks | [
+        .[] | .statusCheckRollup as $checks | (.author.login? // "unknown") as $author | [
             if (.mergeable == "CONFLICTING" or .mergeStateStatus == "DIRTY") then "CONFLICT" else "OK" end,
-            .author.login,
+            $author,
             (.createdAt | fromdateiso8601 | tostring),
             (.updatedAt | fromdateiso8601 | tostring),
             if (($checks // []) | length) == 0 then "CI -"
@@ -136,7 +136,7 @@ print_open_prs() {
             elif all($checks[]; (check_state == "SUCCESS" or check_state == "SKIPPED" or check_state == "NEUTRAL")) then "CI ✅"
             else "CI ❔"
             end,
-            "#\(.number) \(.title) [" + .headRefName + "] @" + .author.login
+            "#\(.number) \(.title) [" + .headRefName + "] @" + $author
         ] | @tsv' \
         2>/dev/null || true)"
 
@@ -246,16 +246,21 @@ print_recent_merged_prs() {
     for number in "${numbers[@]}"; do
         pr_line="$(gh pr view "$number" --repo "$nwo" \
             --json number,title,headRefName,author,mergedAt \
-            --jq 'select(.mergedAt != null) | [
-                (.mergedAt | fromdateiso8601 | tostring),
-                "#\(.number) \(.title) [" + .headRefName + "] @" + .author.login
+            --jq '(.author.login? // "unknown") as $author | [
+                if .mergedAt != null then "merged" else "not-merged" end,
+                (if .mergedAt != null then (.mergedAt | fromdateiso8601 | tostring) else "" end),
+                "#\(.number) \(.title) [" + .headRefName + "] @" + $author
             ] | @tsv' 2>/dev/null || true)"
         if [[ -n "$pr_line" ]]; then
-            local pr_merged_epoch pr_subject
-            IFS=$'\t' read -r pr_merged_epoch pr_subject <<< "$pr_line"
-            info "    ✅ merged PR ($(age_text_from_epoch "$pr_merged_epoch" "today" "ago")): $pr_subject"
+            local pr_status pr_merged_epoch pr_subject
+            IFS=$'\t' read -r pr_status pr_merged_epoch pr_subject <<< "$pr_line"
+            if [[ "$pr_status" == "merged" ]]; then
+                info "    ✅ merged PR ($(age_text_from_epoch "$pr_merged_epoch" "today" "ago")): $pr_subject"
+            else
+                info "    🔎 PR reference (not merged): $pr_subject"
+            fi
         else
-            info "    PR reference (merge status unavailable): #$number"
+            info "    🔎 PR reference (details unavailable): #$number"
         fi
     done
 }
@@ -280,7 +285,7 @@ merged_pr_for_branch() {
         --json number,title,headRefName,author,mergedAt \
         --jq '.[0] | select(. != null and .mergedAt != null) | [
             (.mergedAt | fromdateiso8601 | tostring),
-            "#\(.number) \(.title) [" + .headRefName + "] @" + .author.login
+            "#\(.number) \(.title) [" + .headRefName + "] @" + (.author.login? // "unknown")
         ] | @tsv' \
         2>/dev/null || true)"
     [[ -n "$pr" ]] || return 1
