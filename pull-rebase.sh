@@ -246,7 +246,7 @@ print_recent_merged_prs() {
     for number in "${numbers[@]}"; do
         pr_line="$(gh pr view "$number" --repo "$nwo" \
             --json number,title,headRefName,author,mergedAt \
-            --jq '[
+            --jq 'select(.mergedAt != null) | [
                 (.mergedAt | fromdateiso8601 | tostring),
                 "#\(.number) \(.title) [" + .headRefName + "] @" + .author.login
             ] | @tsv' 2>/dev/null || true)"
@@ -255,7 +255,7 @@ print_recent_merged_prs() {
             IFS=$'\t' read -r pr_merged_epoch pr_subject <<< "$pr_line"
             info "    ✅ merged PR ($(age_text_from_epoch "$pr_merged_epoch" "today" "ago")): $pr_subject"
         else
-            info "    ✅ merged PR (age unknown): #$number"
+            info "    PR reference (merge status unavailable): #$number"
         fi
     done
 }
@@ -278,7 +278,7 @@ merged_pr_for_branch() {
     local pr
     pr="$(gh pr list --repo "$nwo" --state merged --head "$branch" --base main --limit 1 \
         --json number,title,headRefName,author,mergedAt \
-        --jq '.[0] | select(. != null) | [
+        --jq '.[0] | select(. != null and .mergedAt != null) | [
             (.mergedAt | fromdateiso8601 | tostring),
             "#\(.number) \(.title) [" + .headRefName + "] @" + .author.login
         ] | @tsv' \
