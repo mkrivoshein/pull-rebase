@@ -246,9 +246,9 @@ print_recent_merged_prs() {
     for number in "${numbers[@]}"; do
         pr_line="$(gh pr view "$number" --repo "$nwo" \
             --json number,title,headRefName,author,mergedAt \
-            --jq '(.author.login? // "unknown") as $author | [
-                if .mergedAt != null then "merged" else "not-merged" end,
-                (if .mergedAt != null then (.mergedAt | fromdateiso8601 | tostring) else "" end),
+            --jq '(.author.login? // "unknown") as $author | (.mergedAt != null) as $is_merged | [
+                if $is_merged then "merged" else "not-merged" end,
+                (if $is_merged then (.mergedAt | fromdateiso8601 | tostring) else "" end),
                 "#\(.number) \(.title) [" + .headRefName + "] @" + $author
             ] | @tsv' 2>/dev/null || true)"
         if [[ -n "$pr_line" ]]; then
@@ -257,7 +257,7 @@ print_recent_merged_prs() {
             if [[ "$pr_status" == "merged" ]]; then
                 info "    ✅ merged PR ($(age_text_from_epoch "$pr_merged_epoch" "today" "ago")): $pr_subject"
             else
-                info "    🔎 PR reference (not merged): $pr_subject"
+                info "    🔎 PR reference (not yet merged): $pr_subject"
             fi
         else
             info "    🔎 PR reference (details unavailable): #$number"
