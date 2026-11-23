@@ -7,6 +7,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Repository identity used as the log prefix and the summary key. It is set
+# per repository before any output helper is called.
+repo=""
+
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
@@ -41,18 +45,181 @@ age_text_from_epoch() {
     fi
 }
 
-# ── Discover repos (sorted) ────────────────────────────────────────────────────
-declare -a all_dirs=()
-for dir in "$SCRIPT_DIR"/*/; do
-    [[ -d "$dir/.git" ]] && all_dirs+=("$dir")
+# ── Options ────────────────────────────────────────────────────────────────────
+ROOT_DIR="$SCRIPT_DIR"
+MAX_DEPTH="${PULL_REBASE_DEPTH:-3}"
+IGNORE_FILE_NAME=".pull-rebase-ignore"
+
+declare -a exclude_patterns=()
+declare -a path_filters=()
+
+usage() {
+    cat <<EOF
+Usage: pull-rebase.sh [options] [PATH...]
+
+Options:
+  --root DIR        Root directory to scan (default: the script's directory)
+  --depth N         Maximum directory depth to search (default: ${MAX_DEPTH})
+  --exclude GLOB    Skip paths matching GLOB (relative to the root); repeatable
+  -h, --help        Show this help and exit
+
+Positional arguments limit the sync to the given paths (relative to the root
+or absolute), e.g. ./pull-rebase.sh owner-a/
+
+Environment:
+  PULL_REBASE_DEPTH            Default maximum search depth
+  PULL_REBASE_IGNORE           Path to an ignore file (default: <root>/${IGNORE_FILE_NAME})
+EOF
+}
+
+while (( $# > 0 )); do
+    case "$1" in
+        --root)
+            [[ -n "${2:-}" ]] || { echo "--root requires a directory" >&2; exit 2; }
+            ROOT_DIR="$2"
+            shift 2
+            ;;
+        --root=*)
+            ROOT_DIR="${1#*=}"
+            shift
+            ;;
+        --depth)
+            [[ -n "${2:-}" ]] || { echo "--depth requires a number" >&2; exit 2; }
+            MAX_DEPTH="$2"
+            shift 2
+            ;;
+        --depth=*)
+            MAX_DEPTH="${1#*=}"
+            shift
+            ;;
+        --exclude)
+            [[ -n "${2:-}" ]] || { echo "--exclude requires a pattern" >&2; exit 2; }
+            exclude_patterns+=("$2")
+            shift 2
+            ;;
+        --exclude=*)
+            exclude_patterns+=("${1#*=}")
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            while (( $# > 0 )); do
+                path_filters+=("$1")
+                shift
+            done
+            ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+        *)
+            path_filters+=("$1")
+            shift
+            ;;
+    esac
 done
-mapfile -t all_dirs < <(printf '%s\n' "${all_dirs[@]}" | sort)
+
+[[ "$MAX_DEPTH" =~ ^[0-9]+$ ]] || { echo "--depth must be a non-negative integer" >&2; exit 2; }
+
+if [[ ! -d "$ROOT_DIR" ]]; then
+    echo "Root directory not found: $ROOT_DIR" >&2
+    exit 2
+fi
+ROOT_DIR="$(cd "$ROOT_DIR" && pwd)"
+
+IGNORE_FILE="${PULL_REBASE_IGNORE:-$ROOT_DIR/$IGNORE_FILE_NAME}"
+if [[ -f "$IGNORE_FILE" ]]; then
+    while IFS= read -r pattern || [[ -n "$pattern" ]]; do
+        pattern="${pattern%%#*}"
+        pattern="${pattern#"${pattern%%[![:space:]]*}"}"
+        pattern="${pattern%"${pattern##*[![:space:]]}"}"
+        [[ -n "$pattern" ]] && exclude_patterns+=("$pattern")
+    done < "$IGNORE_FILE"
+fi
+
+# ── Discovery ──────────────────────────────────────────────────────────────────
+# Walks down from the root and stops at the first directory that contains a
+# .git entry (a directory for regular clones, a file for worktrees and
+# submodules), so nested checkouts are never treated as separate repositories.
+# Matches a relative path against a shell glob pattern. The pattern matches
+# the path itself, any of its ancestors, or the basename.
+is_excluded() {
+    local rel="$1" pattern prefix rest
+    for pattern in "${exclude_patterns[@]}"; do
+        # shellcheck disable=SC2053  # intentional glob match, not a literal prefix
+        if [[ "$rel" == $pattern ]]; then
+            return 0
+        fi
+        # shellcheck disable=SC2053
+        if [[ "$(basename "$rel")" == $pattern ]]; then
+            return 0
+        fi
+        # Literal prefix of the pattern (up to the first glob character) also
+        # excludes everything below it, e.g. "archive/*" excludes "archive/a/b".
+        prefix="${pattern%%[?*\[\\]*}"
+        prefix="${prefix%/}"
+        if [[ -n "$prefix" && ( "$rel" == "$prefix" || "$rel" == "$prefix"/* ) ]]; then
+            return 0
+        fi
+        # An ancestor of the path matching the pattern excludes the path too.
+        rest="$rel"
+        while [[ "$rest" == */* ]]; do
+            rest="${rest%/*}"
+            # shellcheck disable=SC2053
+            if [[ "$rest" == $pattern ]]; then
+                return 0
+            fi
+        done
+    done
+    return 1
+}
+
+discover_repos() {
+    local dir="$1" depth="$2" sub rel
+    for sub in "$dir"/*/; do
+        [[ -d "$sub" ]] || continue
+        sub="${sub%/}"
+        rel="${sub#"$ROOT_DIR"/}"
+        [[ "$rel" == "$sub" ]] && rel="$(basename "$sub")"
+        is_excluded "$rel" && continue
+        if [[ -e "$sub/.git" ]]; then
+            printf '%s\n' "$rel"
+        elif (( depth < MAX_DEPTH )); then
+            discover_repos "$sub" $(( depth + 1 ))
+        fi
+    done
+}
+
+declare -a all_repos=()
+while IFS= read -r rel; do
+    [[ -n "$rel" ]] && all_repos+=("$rel")
+done < <(discover_repos "$ROOT_DIR" 1 | LC_ALL=C sort)
+
+# Positional path filters restrict the sync to a part of the tree.
+if (( ${#path_filters[@]} > 0 )); then
+    declare -a filtered_repos=()
+    for rel in "${all_repos[@]}"; do
+        for filter in "${path_filters[@]}"; do
+            filter="${filter%/}"
+            filter="${filter#"$ROOT_DIR"/}"
+            if [[ "$rel" == "$filter" || "$rel" == "$filter"/* ]]; then
+                filtered_repos+=("$rel")
+                break
+            fi
+        done
+    done
+    all_repos=("${filtered_repos[@]+"${filtered_repos[@]}"}")
+fi
 
 # Column width shared by both the welcome list and the summary table
 max_len=4
-for dir in "${all_dirs[@]}"; do
-    r="$(basename "$dir")"
-    (( ${#r} > max_len )) && max_len=${#r}
+for rel in "${all_repos[@]}"; do
+    (( ${#rel} > max_len )) && max_len=${#rel}
 done
 
 # ── Check whether gh CLI is usable (once) ─────────────────────────────────────
@@ -299,17 +466,27 @@ merged_pr_for_branch() {
 }
 
 # ── Welcome banner ─────────────────────────────────────────────────────────────
-echo -e "${BOLD}pull-rebase — syncing git repositories in ${SCRIPT_DIR}${RESET}"
+echo -e "${BOLD}pull-rebase — syncing git repositories in ${ROOT_DIR}${RESET}"
 echo -e "${BOLD}─────────────────────────────────────────────────────────────────${RESET}"
-echo -e "Found ${#all_dirs[@]} repositor$([ ${#all_dirs[@]} -eq 1 ] && echo y || echo ies):"
-for dir in "${all_dirs[@]}"; do
+echo -e "Found ${#all_repos[@]} repositor$([ ${#all_repos[@]} -eq 1 ] && echo y || echo ies):"
+
+# Repositories are grouped by their parent directory so that nested layouts
+# stay readable. The full relative path is still shown for every repository.
+last_parent=""
+for rel in "${all_repos[@]}"; do
+    dir="$ROOT_DIR/$rel"
+    parent="${rel%/*}"
+    [[ "$parent" == "$rel" ]] && parent=""
+    if [[ "$parent" != "$last_parent" ]]; then
+        [[ -n "$parent" ]] && printf "  ${DIM}%s/${RESET}\n" "$parent"
+        last_parent="$parent"
+    fi
     fetch_gh_meta "$dir"
-    name="$(basename "$dir")"
     badge_part=""
     [[ -n "$gh_badge" ]] && badge_part="  ${gh_badge}"
     desc_part=""
     [[ -n "$gh_desc"  ]] && desc_part="  ${gh_desc}"
-    printf "  ${CYAN}%-*s${RESET}${badge_part}${desc_part}\n" "$max_len" "$name"
+    printf "  ${CYAN}%-*s${RESET}${badge_part}${desc_part}\n" "$max_len" "$rel"
 done
 echo
 
@@ -325,13 +502,25 @@ record() {
     summary_msg[$repo]="$msg"
 }
 
-for dir in "${all_dirs[@]}"; do
-    repo="$(basename "$dir")"
+for rel in "${all_repos[@]}"; do
+    dir="$ROOT_DIR/$rel"
+    repo="$rel"
     switched_to_main=false
     started_on_main=false
     pr_history_base=""
     fetched_main_ref=""
     main_before_pull=""
+
+    # In an <owner>/<repo> layout the directory path should match the GitHub
+    # repository it points at. Note it when it does not (renamed or moved repo).
+    # Only a single level of nesting maps onto the owner/repo convention.
+    if [[ "$rel" == */* && "$rel" != */*/* ]]; then
+        expected_nwo="$rel"
+        actual_nwo="$(github_nwo_for_dir "$dir" || true)"
+        if [[ -n "$actual_nwo" && "$actual_nwo" != "$expected_nwo" ]]; then
+            muted "  path suggests ${expected_nwo}, origin is ${actual_nwo}"
+        fi
+    fi
 
     branch="$(git -C "$dir" symbolic-ref --short HEAD 2>/dev/null || true)"
     if [[ -z "$branch" ]]; then
