@@ -1,12 +1,12 @@
 # pull-rebase
 
-`pull-rebase.sh` is a small Bash utility for keeping a directory of sibling Git
+`pull-rebase.sh` is a small Bash utility for keeping a directory of sibling or nested Git
 repositories on `main` and up to date.
 
 It is useful when you work across several related GitHub repositories and want a
 single command that:
 
-- lists all sibling Git repositories
+- lists all Git repositories below the root
 - reports open pull requests
 - highlights open pull requests with merge conflicts
 - safely leaves completed feature branches and switches back to `main`
@@ -36,7 +36,58 @@ Run it from that parent directory:
 ./pull-rebase.sh
 ```
 
-Only direct child directories with `.git/` are processed.
+Nested layouts are supported as well. The script walks down from the root and
+stops at the first directory that contains a `.git` entry, so workspaces that
+mirror GitHub paths work too:
+
+```text
+workspace/
+  pull-rebase.sh
+  owner-a/
+    service-api/
+      .git/
+    infra/
+      .git/
+  owner-b/
+    infra/
+      .git/
+```
+
+Repositories are identified by their path relative to the root, so
+`owner-a/infra` and `owner-b/infra` are reported separately.
+
+Discovery never descends into a directory that already contains a `.git`
+entry, which keeps vendored clones and submodules from being treated as
+separate repositories. A `.git` **file** (worktrees and submodule checkouts)
+is recognized as a repository too.
+
+### Options
+
+| Option | Purpose |
+| --- | --- |
+| `--root DIR` | Root directory to scan. Defaults to the script's directory. |
+| `--depth N` | Maximum directory depth to search. Defaults to `3`. |
+| `--exclude GLOB` | Skip matching relative paths. May be repeated. |
+| `-h`, `--help` | Show usage information. |
+| `PATH...` | Positional paths limit the sync to that part of the tree. |
+
+```bash
+./pull-rebase.sh --root ~/src --depth 4
+./pull-rebase.sh --exclude 'archive/*' --exclude 'vendor'
+./pull-rebase.sh owner-a/
+```
+
+The maximum depth can also be set through the `PULL_REBASE_DEPTH` environment
+variable. Exclude patterns can be stored in a `.pull-rebase-ignore` file in
+the root directory (one glob per line, `#` starts a comment); the file path
+can be overridden with `PULL_REBASE_IGNORE`.
+
+### Environment
+
+| Variable | Purpose |
+| --- | --- |
+| `PULL_REBASE_DEPTH` | Default maximum search depth. |
+| `PULL_REBASE_IGNORE` | Path to the ignore file. |
 
 ## Requirements
 
@@ -56,7 +107,7 @@ request metadata will be unavailable.
 
 ## What It Does
 
-For each sibling repository, the script checks the current branch.
+For each repository, the script checks the current branch.
 
 If the repository is already on `main`, it:
 
@@ -148,6 +199,27 @@ worker       OK main - already up to date
 ```
 
 The real script uses colored output and compact symbols in the terminal.
+
+With a nested layout the repositories are grouped by their parent directory
+and identified by their path relative to the root:
+
+```text
+pull-rebase — syncing git repositories in /home/user/workspace
+-----------------------------------------------------------------
+Found 2 repositories:
+  owner-a/
+  owner-a/service-api  private active  API service
+  owner-b/
+  owner-b/service-api  private active  API service
+
+[owner-a/service-api] main is up to date
+[owner-b/service-api] main is up to date
+
+Summary
+---------------------------------------------------------------
+owner-a/service-api  OK main - already up to date
+owner-b/service-api  OK main - already up to date
+```
 
 ## Installation
 
